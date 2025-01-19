@@ -31,5 +31,3 @@ To run the application using Docker:
 - Flask
 - Redis
 
-## License
-This project is licensed under the MIT License.
