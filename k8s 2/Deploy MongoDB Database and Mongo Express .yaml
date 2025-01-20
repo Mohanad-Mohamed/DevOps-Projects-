@@ -1,0 +1,347 @@
+
+
+
+
+1- Create User with permissions (EBS):
+
+create user with permissions ("AmazonEBSCSIDriverPolicy")
+
+
+2- create access key for user:
+
+
+3- create role and Add permissions (EBS):
+
+create role and Add permissions "AmazonEBSCSIDriverPolicy" 
+
+
+ubuntu@master:~$ kubectl get csidriver
+NAME              ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES        AGE
+ebs.csi.aws.com   true             false            false             <unset>         false               Persistent   34d
+efs.csi.aws.com   false            false            false             <unset>         false               Persistent   27h
+
+
+ubuntu@master:~$ kubectl get csinode
+NAME     DRIVERS   AGE
+master   2         69d
+node1    2         69d
+node2    2         69d
+
+
+4- Create sceret with credentials user AWS:
+kubectl create secret generic aws-secret \
+    --namespace kube-system \
+    --from-literal "key_id=AKI**************" \
+    --from-literal "access_key=uB************************"
+---
+
+## create a folder for project
+
+ubuntu@master:~$ mkdir mongodb-project
+ubuntu@master:~$ cd mongodb-project/
+
+
+
+########
+MongoDB 
+########
+
+
+ubuntu@master:~/mongodb-project$ echo -n 'username-secret' | base64
+dXNlcm5hbWUtc2VjcmV0
+
+ubuntu@master:~/mongodb-project$ echo -n 'password-secret' | base64
+cGFzc3dvcmQtc2VjcmV0
+
+
+vim mongodb-secret.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+    name: mongodb-pass
+type: Opaque
+data:
+    username: dXNlcm5hbWUtc2VjcmV0
+    password: cGFzc3dvcmQtc2VjcmV0
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongodb-secret.yaml
+secret/mongodb-pass created
+
+ubuntu@master:~/mongodb-project$ kubectl get secret
+NAME                  TYPE                                  DATA   AGE
+default-token-mrvgj   kubernetes.io/service-account-token   3      75d
+mongodb-pass          Opaque                                2      21s
+
+vim mongodb-sc.yaml
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: mongodb-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongodb-sc.yaml
+storageclass.storage.k8s.io/mongodb-sc created
+
+ubuntu@master:~/mongodb-project$ kubectl get sc
+NAME         PROVISIONER       RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+mongodb-sc   ebs.csi.aws.com   Delete          WaitForFirstConsumer   false                  8s
+
+
+vim mongodb-pvc.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: mongodb-sc
+  resources:
+    requests:
+      storage: 5Gi
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongodb-pvc.yaml
+persistentvolumeclaim/mongodb-pvc created
+
+ubuntu@master:~/mongodb-project$ kubectl get pvc
+NAME          STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mongodb-pvc   Pending                                      mongodb-sc     7s
+
+# STATUS .... Pending
+
+
+
+vim mongodb-app.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo
+        ports:
+          - containerPort: 27017
+        env:
+          - name: MONGO_INITDB_ROOT_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: mongodb-pass
+                key: username
+          - name: MONGO_INITDB_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mongodb-pass
+                key: password
+        volumeMounts:
+        - name: mongo-storage
+          mountPath: /data/db
+      volumes:
+      - name: mongo-storage
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongodb-app.yaml
+deployment.apps/mongodb-app created
+
+ubuntu@master:~/mongodb-project$ kubectl get deploy
+NAME          READY   UP-TO-DATE   AVAILABLE   AGE
+mongodb-app   0/1     1            0           7s
+
+ubuntu@master:~/mongodb-project$ kubectl get deploy
+NAME          READY   UP-TO-DATE   AVAILABLE   AGE
+mongodb-app   1/1     1            1           11s
+
+ubuntu@master:~/mongodb-project$ kubectl get po
+NAME                           READY   STATUS    RESTARTS   AGE
+mongodb-app-775687669d-wh2mp   1/1     Running   0          41s
+
+## go to ebs on AWS
+
+
+
+ubuntu@master:~/mongodb-project$ kubectl get sc
+NAME         PROVISIONER       RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+mongodb-sc   ebs.csi.aws.com   Delete          WaitForFirstConsumer   false                  5m25s
+
+ubuntu@master:~/mongodb-project$ kubectl get pvc
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mongodb-pvc   Bound    pvc-0d566e88-ee5d-4fa5-9eea-572ade2414c5   5Gi        RWO            mongodb-sc     4m17s
+## STATUS .... Bound
+ubuntu@master:~/mongodb-project$ kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                 STORAGECLASS   REASON   AGE
+pvc-0d566e88-ee5d-4fa5-9eea-572ade2414c5   5Gi        RWO            Delete           Bound    default/mongodb-pvc   mongodb-sc              62s
+
+
+vim mongodb-svc.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-svc
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongodb-svc.yaml
+service/mongodb-svc created
+
+ubuntu@master:~/mongodb-project$ kubectl get svc
+NAME          TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)     AGE
+kubernetes    ClusterIP   10.96.0.1        <none>        443/TCP     41d
+mongodb-svc   ClusterIP   10.108.236.234   <none>        27017/TCP   5s
+
+
+
+
+
+
+#################
+2- MongoExpress:
+#################
+
+
+vim mongodb-cm.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-cm
+data:
+  database_url: mongodb-svc
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongodb-cm.yaml
+configmap/mongodb-cm created
+
+ubuntu@master:~/mongodb-project$ kubectl get cm
+NAME               DATA   AGE
+kube-root-ca.crt   1      75d
+mongodb-cm         1      7s
+
+
+
+vim mongo-express-app.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-express-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo-express
+  template:
+    metadata:
+      labels:
+        app: mongo-express
+    spec:
+      containers:
+      - name: mongo-express
+        image: mongo-express
+        ports:
+          - containerPort: 8081
+        env:
+          - name: ME_CONFIG_MONGODB_ADMINUSERNAME
+            valueFrom:
+              secretKeyRef:
+                name: mongodb-pass
+                key: username
+          - name: ME_CONFIG_MONGODB_ADMINPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mongodb-pass
+                key: password
+          - name: ME_CONFIG_MONGODB_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: mongodb-cm
+                key: database_url
+---
+
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongo-express-app.yaml
+deployment.apps/mongo-express-app created
+
+
+ubuntu@master:~/mongodb-project$ kubectl get deploy
+NAME                READY   UP-TO-DATE   AVAILABLE   AGE
+mongo-express-app   1/1     1            1           6s
+mongodb-app         1/1     1            1           10m
+
+
+ubuntu@master:~/mongodb-project$ kubectl get po
+NAME                                 READY   STATUS    RESTARTS   AGE
+mongo-express-app-5bd454dd7d-2gwtw   1/1     Running   0          26s
+mongodb-app-775687669d-wh2mp         1/1     Running   0          10m
+
+
+
+
+vim mongo-express-svc.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-express-svc
+spec:
+  selector:
+    app: mongo-express
+  type: LoadBalancer 
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+      nodePort: 31000
+---
+
+ubuntu@master:~/mongodb-project$ kubectl apply -f mongo-express-svc.yaml
+service/mongo-express-svc created
+
+
+ubuntu@master:~/mongodb-project$ kubectl get svc
+NAME                TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+kubernetes          ClusterIP      10.96.0.1        <none>        443/TCP          41d
+mongo-express-svc   LoadBalancer   10.97.6.119      <pending>     8081:31000/TCP   21s
+mongodb-svc         ClusterIP      10.108.236.234   <none>        27017/TCP        5m59s
+
+
+
+## try to access the App
+
+
+ubuntu@master:~/mongodb-project$ cd ~
+
+ubuntu@master:~$ kubectl delete -f mongodb-project/
+deployment.apps "mongo-express-app" deleted
+service "mongo-express-svc" deleted
+deployment.apps "mongodb-app" deleted
+configmap "mongodb-cm" deleted
+persistentvolumeclaim "mongodb-pvc" deleted
+storageclass.storage.k8s.io "mongodb-sc" deleted
+secret "mongodb-pass" deleted
+service "mongodb-svc" deleted
+
