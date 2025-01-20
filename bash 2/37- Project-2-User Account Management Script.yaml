@@ -1,0 +1,89 @@
+
+
+
+
+############# Script 1 #############
+
+ubuntu@DolfinED:~$ vim data.sh
+---
+#!/bin/bash
+
+read -p "Enter your username: " user
+read -p "Enter your full-name: " name
+
+INFO=$user,$name
+
+read -p "Please confirm that you have entered the correct information. Is everything correct ? [y/n] " input
+
+case $input in
+      N | n)
+      exit
+      ;;
+      Y | y)
+      echo $INFO >> employee.csv
+      ;;
+      *)
+      exit
+      ;;
+esac
+
+echo "Your data has been stored successfully "
+---
+
+
+
+############# Script 2 #############
+
+ubuntu@DolfinED:~$ vim user.sh
+---
+#!/bin/bash
+
+CSV_FILE="employee.csv"
+
+if [ "$UID" -ne 0 ]; then
+  echo "This script must be run as root."
+  exit 1
+fi
+
+if [ ! -f "$CSV_FILE" ]; then
+  echo "CSV file not found: $CSV_FILE"
+  exit 1
+fi
+
+while IFS=, read -r username full_name; do
+  password=$(openssl rand -base64 12)
+
+  useradd -m -c "$full_name" "$username"
+  echo "$username:$password" | chpasswd
+
+  chage -d 0 "$username"
+
+  echo "User created: $username"
+  echo "Full Name: $full_name"
+  echo "Random Password: $password"
+  echo "-------------------"
+  echo $username,$password >> out.txt
+
+done < "$CSV_FILE"
+
+echo "User creation completed."
+---
+
+
+ubuntu@DolfinED:~$ sudo deluser --remove-home K8s
+Looking for files to backup/remove ...
+Removing files ...
+Removing user `K8s' ...
+Warning: group `K8s' has no more members.
+Done.
+
+
+ubuntu@DolfinED:~$ sudo deluser --remove-home aws
+Looking for files to backup/remove ...
+Removing files ...
+Removing user `aws' ...
+Warning: group `aws' has no more members.
+Done.
+
+
+
