@@ -1,0 +1,9 @@
+# Example crontab entry for running backup every 2 minutes
+*/2 * * * * root /home/ubuntu/backup-script-s3.sh
+
+# Note: To add this to your system's crontab:
+# 1. Edit the crontab file: sudo vim /etc/crontab
+# 2. Add the above line
+# 3. Save and exit
+
+# To remove the schedule, simply remove the line from /etc/crontab
