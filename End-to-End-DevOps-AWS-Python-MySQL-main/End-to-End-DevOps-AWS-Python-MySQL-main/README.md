@@ -1,7 +1,5 @@
 # End-to-end DevOps | Python - MySQL App
 
-<img src=imgs/cover.png>
-
 This is a simple Python Flask application that performs CRUD operations on a MySQL database, the project contains scripts and Kubernetes manifests for deploying the Python application with Mysql Database on an AWS EKS cluster and RDS with an accompanying ECR repositories. The deployment includes setting up monitoring with Prometheus and Grafana, and a CI/CD pipeline.
 
 ## Prerequisites
